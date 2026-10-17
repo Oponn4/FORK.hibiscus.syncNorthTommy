@@ -67,6 +67,7 @@ final class TraderepublicTransactionAnalyzer {
 				getSection(details, "sections", "Transaction", "data", "Total", "detail", "text"),
 				getSection(details, "sections", "Overview", "data", "Transaction", "detail", "action", "payload",
 						"sections", "[1]", "data", "Total", "detail", "text"),
+				getSection(details, "sections", "Overview", "data", "Total", "detail", "displayValue", "text"),
 				getSection(details, "sections", "Overview", "data", "Total", "detail", "text")));
 		Double fee = normalize(firstNonBlank(
 				getSection(details, "sections", "Transaction", "data", "Fee", "detail", "text"),
@@ -183,7 +184,8 @@ final class TraderepublicTransactionAnalyzer {
 	}
 
 	private static Double normalize(String s) {
-		return Double.parseDouble(s.replace("\u20AC", "").replace("+ ", "").replace(" x ", "").replace(",", ""));
+		return Double.parseDouble(s.replace("\u20AC", "").replace("+ ", "").replace(" x ", "").replace(",", "")
+				.replace("\u00A0", "").trim());
 	}
 
 }
