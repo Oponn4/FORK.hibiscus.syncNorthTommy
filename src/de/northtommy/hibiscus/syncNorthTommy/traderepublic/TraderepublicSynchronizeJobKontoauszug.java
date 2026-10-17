@@ -405,8 +405,10 @@ public class TraderepublicSynchronizeJobKontoauszug extends SyncNTSynchronizeJob
             log(Level.DEBUG, "WSS Connecting to: " + echoUri);
 
             long syncStart = System.currentTimeMillis();
+            // The full history needs far more requests than the usual delta.
+            long syncTimeout = fullHistory ? 600000 : 60000;
             
-            while ((socket.getRxState() != TraderepublicWebSocket.RxState.FINISHED) && (socket.getRxState() != TraderepublicWebSocket.RxState.ERROR) && ((System.currentTimeMillis() - syncStart) < 60000)) {
+            while ((socket.getRxState() != TraderepublicWebSocket.RxState.FINISHED) && (socket.getRxState() != TraderepublicWebSocket.RxState.ERROR) && ((System.currentTimeMillis() - syncStart) < syncTimeout)) {
             	Thread.sleep(1000);
             }
             socket.awaitClose(2, TimeUnit.SECONDS);
