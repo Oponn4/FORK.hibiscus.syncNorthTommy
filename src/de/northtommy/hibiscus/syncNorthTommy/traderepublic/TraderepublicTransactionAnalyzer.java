@@ -16,7 +16,8 @@ final class TraderepublicTransactionAnalyzer {
 			"BANK_TRANSACTION_INCOMING", "INTEREST_PAYOUT", "BANK_TRANSACTION_OUTGOING", "INTEREST_PAYOUT_CREATED",
 			"PAYMENT_INBOUND_CREDIT_CARD", "SSP_CORPORATE_ACTION_CASH", "SSP_CORPORATE_ACTION_CASH_NON_DIVIDEND");
 	private static List<String> relevantList = Arrays.asList("SAVINGS_PLAN_INVOICE_CREATED", "TRADE_INVOICE",
-			"SAVEBACK_AGGREGATE", "TRADING_SAVINGSPLAN_EXECUTED", "TRADING_TRADE_EXECUTED");
+			"SAVEBACK_AGGREGATE", "TRADING_SAVINGSPLAN_EXECUTED", "TRADING_TRADE_EXECUTED",
+			"SPARE_CHANGE_AGGREGATE", "SAVINGS_PLAN_EXECUTED");
 
 	private TraderepublicTransactionAnalyzer() {
 	}
@@ -85,7 +86,9 @@ final class TraderepublicTransactionAnalyzer {
 				orderType = "Buy";
 			}
 			if (orderType == null && (eventType.startsWith("SAVEBACK_AGGREGATE")
-					|| eventType.startsWith("TRADING_SAVINGSPLAN_EXECUTED"))) {
+					|| eventType.startsWith("TRADING_SAVINGSPLAN_EXECUTED")
+					|| eventType.startsWith("SPARE_CHANGE_AGGREGATE")
+					|| eventType.startsWith("SAVINGS_PLAN_EXECUTED"))) {
 				orderType = "Buy";
 			}
 		}

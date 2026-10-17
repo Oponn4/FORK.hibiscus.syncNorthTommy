@@ -191,7 +191,7 @@ class TraderepublicDepotSynchronizeJob {
 				}
 				t.put("konto", konto);
 				transactionen.add(t);
-			} catch (ParseException e) {
+			} catch (ParseException | RuntimeException e) {
 				owner.log(Level.ERROR,"Fehler beim Parsen der Transaction: " + id  + " => " + e);
 			}
 		}
