@@ -18,6 +18,7 @@ public class TraderepublicSynchronizeBackend extends SyncNTSynchronizeBackend
 	public final static String META_NOTHEADLESS = "Browser beim Ermitteln Akamai-Header anzeigen";
 	public final static String META_HEADERS = "Headerdaten";
 	public final static String META_JSONDATA = "Speichere Debug-Daten";
+	public final static String META_FULLHISTORY = "Beim nächsten Abruf komplette Historie neu einlesen";
 
 	static boolean isDebugEnabled(Konto konto) throws RemoteException {
 		// Read existing settings stored under the previously displayed property name as well.
@@ -52,6 +53,7 @@ public class TraderepublicSynchronizeBackend extends SyncNTSynchronizeBackend
 			result.add(META_NOTHEADLESS);
 	        if (KontoType.WERTPAPIERDEPOT.getValue() == konto.getAccountType()) {
 				result.add(META_JSONDATA);
+				result.add(META_FULLHISTORY);
 			}
 			return result;
 		} 
