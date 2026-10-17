@@ -18,6 +18,7 @@ public class TraderepublicSynchronizeBackend extends SyncNTSynchronizeBackend
 	public final static String META_NOTHEADLESS = "Browser beim Ermitteln Akamai-Header anzeigen";
 	public final static String META_HEADERS = "Headerdaten";
 	public final static String META_JSONDATA = "Speichere Debug-Daten";
+	public final static String META_FULLHISTORY = "Beim nächsten Abruf komplette Historie neu einlesen";
 
     @Override
     public String getName()
@@ -43,6 +44,7 @@ public class TraderepublicSynchronizeBackend extends SyncNTSynchronizeBackend
 			result.add(META_NOTHEADLESS + "(true/false)");
 	        if (KontoType.WERTPAPIERDEPOT.getValue() == konto.getAccountType()) {
 				result.add(META_JSONDATA + "(true/false)");
+				result.add(META_FULLHISTORY + "(true/false)");
 			}
 			return result;
 		} 

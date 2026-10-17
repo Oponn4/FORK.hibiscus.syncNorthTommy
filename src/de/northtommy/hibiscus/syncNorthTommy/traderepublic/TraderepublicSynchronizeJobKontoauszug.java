@@ -332,7 +332,14 @@ public class TraderepublicSynchronizeJobKontoauszug extends SyncNTSynchronizeJob
 		
 		Date untilDate = null;
 		umsaetze.begin();
-		if (umsaetze.hasNext()) {
+		// Optional: read the whole timeline again, e.g. after support for a new event type was added.
+		// Otherwise only bookings newer than the latest stored one are requested. Orders are deduplicated
+		// by order id. The option resets itself after a successful depot sync.
+		boolean fullHistory = "true".equals(konto.getMeta(TraderepublicSynchronizeBackend.META_FULLHISTORY, "false"));
+		if (fullHistory) {
+			log(Level.INFO, "Komplette Historie wird neu eingelesen");
+		}
+		if (!fullHistory && umsaetze.hasNext()) {
 			untilDate = umsaetze.next().getDatum();
 			while (umsaetze.hasNext()) {
 				var u = umsaetze.next();
@@ -412,7 +419,11 @@ public class TraderepublicSynchronizeJobKontoauszug extends SyncNTSynchronizeJob
             	throw new ApplicationException("Synchronisation Timeout");
             }
             if (KontoType.WERTPAPIERDEPOT.getValue() == konto.getAccountType()) {
-				return new TraderepublicDepotSynchronizeJob(this).process(konto, fetchSaldo, fetchUmsatz, socket);
+				var result = new TraderepublicDepotSynchronizeJob(this).process(konto, fetchSaldo, fetchUmsatz, socket);
+				if (fullHistory) {
+					konto.setMeta(TraderepublicSynchronizeBackend.META_FULLHISTORY, "false");
+				}
+				return result;
             }
             if (fetchSaldo) {
             	boolean foundAccount = false;
