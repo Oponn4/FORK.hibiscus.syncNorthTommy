@@ -144,6 +144,26 @@ public class TraderepublicSynchronizeJobKontoauszug extends SyncNTSynchronizeJob
 		//headers.add(new KeyValue<String, String>("X-TR-App-Version", "3.296.0"));
 
 		  
+		// Eine Anmeldung (mit OTP aus der App) je Abruf: Verrechnungskonto und Depot sind zwei Hibiscus-Konten
+		// mit je einem Job, nutzen aber dieselbe TR-Sitzung. Sonst fragt jedes TR-Konto ein eigenes OTP ab.
+		String sessId[] = {""};
+		String tr_device[] = {""};
+		String tr_session[] = {""};
+		String tr_claims[] = {""};
+		String tr_external_id[] = {""};
+		String tr_refresh[] = {""};
+		JSONObject json = null;
+		String[] cached = TraderepublicSessionCache.get(user);
+		if (cached != null) {
+			sessId[0] = cached[0];
+			tr_device[0] = cached[1];
+			tr_session[0] = cached[2];
+			tr_claims[0] = cached[3];
+			tr_refresh[0] = cached[4];
+			tr_external_id[0] = cached[5];
+			log(Level.INFO, "Anmeldung vom vorigen TR-Konto dieses Abrufs wird weiterverwendet (kein weiteres OTP).");
+		} else {
+
 		// Perform Login getting sessionID ... for further login steps
 		
 		trialCount = 0;
@@ -175,13 +195,11 @@ public class TraderepublicSynchronizeJobKontoauszug extends SyncNTSynchronizeJob
 		
 		
 
-		var json = response.getJSONObject();
+		json = response.getJSONObject();
 		log(Level.DEBUG, "Login step 1 response: " + json);
 		// processId needed for URL for sending SMS-TAN
 		String processId = json.getString("processId");
 		// sessionId needed for cookie when sending SMS-TAN
-		String sessId[] = {""};
-		String tr_device[] = {""};
 		response.getResponseHeader().forEach(nvp -> {
 			log(Level.DEBUG, "Login Step 1 header: " + nvp.getName() + ": " + nvp.getValue());
 			if (nvp.getName().compareToIgnoreCase("set-cookie") == 0) {
@@ -249,11 +267,6 @@ public class TraderepublicSynchronizeJobKontoauszug extends SyncNTSynchronizeJob
 		// with TAN-call we got further data
 		
 		// seddId is reused and updated
-		String tr_session[] = {""};
-		String tr_claims[] = {""};
-		String tr_external_id[] = {""};
-		String tr_refresh[] = {""};
-		
 		response.getResponseHeader().forEach(nvp -> {
 			log(Level.DEBUG, "Login Step 2 header: " + nvp.getName() + ": " + nvp.getValue());
 			if (nvp.getName().compareToIgnoreCase("set-cookie") == 0) {
@@ -284,6 +297,7 @@ public class TraderepublicSynchronizeJobKontoauszug extends SyncNTSynchronizeJob
 		
 		updatePercentComplete(5);
 		log(Level.INFO, "Login erfolgreich.");
+		} // Ende der Anmeldung (ohne weiterverwendete Sitzung)
 
 		
 		
@@ -320,6 +334,10 @@ public class TraderepublicSynchronizeJobKontoauszug extends SyncNTSynchronizeJob
 		
 		if (response.getHttpStatus() != 200) {
 			log(Level.DEBUG, "Response: " + response.getContent());
+			if (cached != null) {
+				TraderepublicSessionCache.clear();
+				throw new ApplicationException("Holen der Kontodaten mit weiterverwendeter Anmeldung fehlgeschlagen, bitte Abruf erneut starten");
+			}
 			throw new ApplicationException("Holen der Kontodaten fehlgeschlagen");
 		}
 		
@@ -353,6 +371,11 @@ public class TraderepublicSynchronizeJobKontoauszug extends SyncNTSynchronizeJob
 			gc.add(GregorianCalendar.DAY_OF_MONTH, -10);
 		}
 		
+		// Kontodaten kamen an, die Sitzung gilt: fuer das naechste TR-Konto dieses Abrufs merken.
+		TraderepublicSessionCache.put(user, new String[] {
+				sessId[0], tr_device[0], tr_session[0], tr_claims[0], tr_refresh[0], tr_external_id[0] });
+		boolean jobFailed = false;
+
 		String destUri = TRADEREP_WSS_URL;
         WebSocketClient client = new WebSocketClient();
 		client.getHttpClient().setRequestBufferSize(64 * 1024);
@@ -630,6 +653,26 @@ public class TraderepublicSynchronizeJobKontoauszug extends SyncNTSynchronizeJob
 						{
 							neueUmsaetze.add(newUmsatz);
 						}
+
+						// Saveback: TR schreibt den Bonus aufs Cashkonto gut ("Saveback cash reward") und kauft davon
+						// sofort Anteile. Die Timeline liefert nur den Kauf, ohne Gegenbuchung fehlt der Bonus und die
+						// Zwischensalden laufen auseinander. Die Gutschrift wird hier als eigener Umsatz ergänzt.
+						if ("Saveback Trading".equals(newUmsatz.getArt()) && status.compareToIgnoreCase("EXECUTED") == 0
+								&& newUmsatz.getBetrag() < 0) {
+							var gutschrift = (Umsatz) Settings.getDBService().createObject(Umsatz.class,null);
+							gutschrift.setKonto(konto);
+							gutschrift.setTransactionId(transaction.getString("id") + "-reward");
+							gutschrift.setBetrag(-newUmsatz.getBetrag());
+							gutschrift.setZweck("Saveback cash reward");
+							gutschrift.setArt("Saveback Gutschrift");
+							gutschrift.setDatum(newUmsatz.getDatum());
+							gutschrift.setValuta(newUmsatz.getValuta());
+							gutschrift.setSaldo(calculatedSaldo);
+							calculatedSaldo -= gutschrift.getBetrag();
+							if (getDuplicateById(gutschrift) == null) {
+								neueUmsaetze.add(gutschrift);
+							}
+						}
 	            	
             		}
             		catch (Exception ex)
@@ -665,6 +708,9 @@ public class TraderepublicSynchronizeJobKontoauszug extends SyncNTSynchronizeJob
 				
             } // if fetchUmsatz
 
+        } catch (Exception jobError) {
+            jobFailed = true;
+            throw jobError;
         } finally {
             try {
             		log(Level.INFO, "Stop Websocketclient in background ...");
@@ -673,7 +719,8 @@ public class TraderepublicSynchronizeJobKontoauszug extends SyncNTSynchronizeJob
                 e.printStackTrace();
             }
             
-            // Logout
+            // Logout erst nach dem letzten TR-Konto dieses Abrufs (oder nach einem Fehler), siehe TraderepublicSessionCache
+            if (TraderepublicSessionCache.finishJob(jobFailed)) {
  			try 
  			{
  				response = doRequest(TRADEREP_LOGOUT_URL, 
@@ -681,6 +728,9 @@ public class TraderepublicSynchronizeJobKontoauszug extends SyncNTSynchronizeJob
  						null);
  			}
  			catch (Exception e) {}
+            } else {
+            	log(Level.INFO, "Abmeldung folgt nach dem letzten TR-Konto dieses Abrufs.");
+            }
  			
  			try {
  				if (pwrt != null) {

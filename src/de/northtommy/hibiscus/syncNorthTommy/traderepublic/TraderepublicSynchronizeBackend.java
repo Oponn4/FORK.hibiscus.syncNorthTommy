@@ -9,6 +9,9 @@ import de.willuhn.annotation.Lifecycle;
 import de.willuhn.annotation.Lifecycle.Type;
 import de.willuhn.jameica.hbci.rmi.Konto;
 import de.willuhn.jameica.hbci.rmi.KontoType;
+import de.willuhn.jameica.hbci.synchronize.SynchronizeSession;
+import de.willuhn.jameica.system.OperationCanceledException;
+import de.willuhn.util.ApplicationException;
 
 @Lifecycle(Type.CONTEXT)
 public class TraderepublicSynchronizeBackend extends SyncNTSynchronizeBackend
@@ -19,6 +22,19 @@ public class TraderepublicSynchronizeBackend extends SyncNTSynchronizeBackend
 	public final static String META_HEADERS = "Headerdaten";
 	public final static String META_JSONDATA = "Speichere Debug-Daten";
 	public final static String META_FULLHISTORY = "Beim nächsten Abruf komplette Historie neu einlesen";
+
+    /**
+     * Merkt sich die Zahl der TR-Jobs dieses Abrufs, damit sich alle TR-Konten eine Anmeldung teilen
+     * (siehe TraderepublicSessionCache).
+     */
+    @Override
+    @SuppressWarnings("rawtypes")
+    public synchronized SynchronizeSession execute(List jobs) throws ApplicationException, OperationCanceledException
+    {
+        if (getCurrentSession() == null)
+            TraderepublicSessionCache.startRun(jobs == null ? 0 : jobs.size());
+        return super.execute(jobs);
+    }
 
     @Override
     public String getName()
