@@ -63,6 +63,11 @@ public abstract class SyncNTSynchronizeBackend extends AbstractSynchronizeBacken
 		return result;
 	}
 
+	public boolean isSyncInterrupted()
+	{
+		return worker != null && worker.isInterrupted();
+	}
+
 	protected class SyncNTJobGroup extends JobGroup
 	{
 		protected SyncNTJobGroup(Konto k) {
