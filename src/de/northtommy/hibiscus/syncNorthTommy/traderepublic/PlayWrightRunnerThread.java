@@ -80,9 +80,11 @@ public class PlayWrightRunnerThread extends Thread {
         Browser browser = null;
         // filled by the response listener, body is read outside of the event handler
         var lastWafResponse = new AtomicReference<com.microsoft.playwright.Response>();
+        // closed at the end, otherwise one node driver process is left behind per sync
+        Playwright playwright = null;
         try
         {
-            Playwright playwright = Playwright.create();
+            playwright = Playwright.create();
             syncJobLogger.log(Level.INFO, "Playwright gestartet, waehle Browser...");
             var options1 = new BrowserType.LaunchOptions().setHeadless(headlessBrowser);
             var proxyConfig = webClient.getOptions().getProxyConfig();
@@ -148,6 +150,7 @@ public class PlayWrightRunnerThread extends Thread {
             syncJobLogger.log(Level.WARN, "Error starting Playwright: " + e.getMessage());
             if (pwPage != null) pwPage.close();
             if (browser != null) browser.close();
+            closeQuietly(playwright);
             // break the Thread may lead to timeout waiting for token from outside - we cannot directly throw an exception
             return;
         }
@@ -176,6 +179,16 @@ public class PlayWrightRunnerThread extends Thread {
             if (pwPage != null) pwPage.close();
             if (browser != null) browser.close();
             syncJobLogger.log(Level.INFO, "PlayWrightRunnerThread browser closed");
+            closeQuietly(playwright);
+        }
+    }
+
+    private void closeQuietly(Playwright playwright) {
+        if (playwright == null) return;
+        try {
+            playwright.close();
+        } catch (Exception e) {
+            syncJobLogger.log(Level.WARN, "PlayWrightRunnerThread Playwright nicht geschlossen: " + e.getMessage());
         }
     }
 
