@@ -94,6 +94,30 @@ public class TraderepublicSynchronizeJobKontoauszug extends SyncNTSynchronizeJob
 	@Override
 	public boolean process(Konto konto, boolean fetchSaldo, boolean fetchUmsatz, DBIterator<Umsatz> umsaetze, String user, String passwort) throws Exception
 	{
+		try {
+			return processInternal(konto, fetchSaldo, fetchUmsatz, umsaetze, user, passwort);
+		} finally {
+			// Den Browser auf jedem Weg beenden, auch wenn der Login scheitert oder abgebrochen wird. Vorher lief Firefox
+			// nach "Login Step 2 fehlgeschlagen" 20 Stunden weiter und belegte Speicher und CPU (2026-10-20).
+			stopPlaywright();
+		}
+	}
+
+	private void stopPlaywright()
+	{
+		if (pwrt == null || !pwrt.isAlive())
+			return;
+		log(Level.INFO, "Stop PlayWright in background ...");
+		pwrt.stopRunning();
+		try {
+			pwrt.join(40000);
+		} catch (InterruptedException e) {
+			Thread.currentThread().interrupt();
+		}
+	}
+
+	private boolean processInternal(Konto konto, boolean fetchSaldo, boolean fetchUmsatz, DBIterator<Umsatz> umsaetze, String user, String passwort) throws Exception
+	{
 		int trialCount = 0;
 		WebResult response = null;
 
