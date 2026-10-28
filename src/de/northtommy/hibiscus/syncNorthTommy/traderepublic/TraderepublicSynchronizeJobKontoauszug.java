@@ -26,6 +26,9 @@ import java.util.GregorianCalendar;
 import java.util.List;
 import java.util.Map;
 import java.util.TimeZone;
+import java.util.Timer;
+import java.util.TimerTask;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.UUID;
 
 import javax.annotation.Resource;
@@ -43,6 +46,8 @@ import de.northtommy.hibiscus.syncNorthTommy.traderepublic.TraderepublicWebSocke
 import de.northtommy.hibiscus.syncNorthTommy.PlayWrightRunnerThread;
 
 import de.willuhn.datasource.rmi.DBIterator;
+import de.willuhn.jameica.gui.dialogs.AbstractDialog;
+import de.willuhn.jameica.gui.dialogs.TextDialog;
 import de.willuhn.jameica.hbci.Settings;
 import de.willuhn.jameica.hbci.messaging.ObjectChangedMessage;
 import de.willuhn.jameica.hbci.messaging.ObjectDeletedMessage;
@@ -74,6 +79,9 @@ public class TraderepublicSynchronizeJobKontoauszug extends SyncNTSynchronizeJob
 
 	//private static final String TRADEREP_PLAYWRIGTH_HOME = "https://traderepublic.com/";
 	private static final String TRADEREP_PLAYWRIGTH_LOGIN = "https://app.traderepublic.com/login";
+	// Ohne Zeitlimit bliebe der Code-Dialog offen, bis ihn jemand schließt, und Jameica lehnt bis dahin jede weitere
+	// Synchronisierung ab (getestet 28.10.2026: nach 10 Minuten noch offen). Wie bei Advanzia nach 180 s aufgeben.
+	private static final int CODE_TIMEOUT_SECONDS = 180;
 	
 	private static final String TRADEREP_LOGIN_URL = "https://api.traderepublic.com/api/v1/auth/web/login";
 	private static final String TRADEREP_ACCOUNT_URL = "https://api.traderepublic.com/api/v2/auth/account";
@@ -244,7 +252,7 @@ public class TraderepublicSynchronizeJobKontoauszug extends SyncNTSynchronizeJob
 		
 		var requestText = "Gib den Code ein, den du per Traderepublic App erhalten hast";
 		
-		var sca = Application.getCallback().askUser(requestText, "Code:");
+		var sca = askCode(requestText);
 		if (sca == null || sca.isBlank())
 		{
 			log(Level.WARN, "Login abgebrochen");
@@ -767,5 +775,48 @@ public class TraderepublicSynchronizeJobKontoauszug extends SyncNTSynchronizeJob
  			} catch (Exception e) {}
         }
 		return true;
+	}
+
+	/**
+	 * Fragt den Code wie Application.getCallback().askUser, schließt den Dialog aber nach CODE_TIMEOUT_SECONDS.
+	 * Im Server-Modus gibt es keinen Dialog, dort bleibt es beim Callback.
+	 */
+	private String askCode(String requestText) throws Exception
+	{
+		if (Application.inServerMode())
+			return Application.getCallback().askUser(requestText, "Code:");
+
+		var dialog = new TextDialog(AbstractDialog.POSITION_CENTER);
+		dialog.setText(requestText);
+		dialog.setTitle("Code:");
+		dialog.setLabelText("Code:");
+		var timedOut = new AtomicBoolean(false);
+		var timer = new Timer("SyncNT-TR-Code-Timeout", true);
+		timer.schedule(new TimerTask() {
+			@Override
+			public void run()
+			{
+				timedOut.set(true);
+				dialog.close();
+			}
+		}, CODE_TIMEOUT_SECONDS * 1000L);
+		String code;
+		try
+		{
+			code = (String) dialog.open();
+		}
+		catch (Exception e)
+		{
+			if (timedOut.get())
+				throw new ApplicationException("Kein Code innerhalb von " + CODE_TIMEOUT_SECONDS + " Sekunden eingegeben");
+			throw e;
+		}
+		finally
+		{
+			timer.cancel();
+		}
+		if (timedOut.get())
+			throw new ApplicationException("Kein Code innerhalb von " + CODE_TIMEOUT_SECONDS + " Sekunden eingegeben");
+		return code;
 	}
 }
