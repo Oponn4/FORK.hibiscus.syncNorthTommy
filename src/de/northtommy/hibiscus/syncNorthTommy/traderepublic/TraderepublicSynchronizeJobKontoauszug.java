@@ -86,6 +86,11 @@ public class TraderepublicSynchronizeJobKontoauszug extends SyncNTSynchronizeJob
 	// Synchronisierung ab (getestet 28.10.2026: nach 10 Minuten noch offen). Wie bei Advanzia nach 180 s aufgeben.
 	private static final int CODE_TIMEOUT_SECONDS = 180;
 	
+	// Wie die Web-App unter Linux mit dem Firefox, den Playwright für den WAF-Token startet (firefox-1495 = 142).
+	private static final String FIREFOX_VERSION = "142.0";
+	private static final String USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64; rv:" + FIREFOX_VERSION + ") Gecko/20100101 Firefox/" + FIREFOX_VERSION;
+	// Version der Web-App (app.traderepublic.com, Stand 31.10.2026), sie sendet sie bei jedem Aufruf mit.
+	private static final String WEB_APP_VERSION = "2.2644.24";
 	private static final String TRADEREP_LOGIN_URL = "https://api.traderepublic.com/api/v1/auth/web/login";
 	private static final String TRADEREP_ACCOUNT_URL = "https://api.traderepublic.com/api/v2/auth/account";
 	private static final String TRADEREP_WSS_URL = "wss://api.traderepublic.com/";
@@ -115,9 +120,10 @@ public class TraderepublicSynchronizeJobKontoauszug extends SyncNTSynchronizeJob
 	}
 
 	/**
-	 * Wert für X-TR-Device-Info wie in der Web-App (app.traderepublic.com): Base64 eines JSON mit Geräte-
-	 * und Browserdaten. Die Web-App bildet stableDeviceId als SHA-512 über einen Canvas-Abdruck. Hier
-	 * stattdessen SHA-512 über die Telefonnummer, damit die ID je Konto über alle Abrufe gleich bleibt.
+	 * Wert für X-TR-Device-Info wie in der Web-App (app.traderepublic.com) unter Firefox auf einem Linux-Desktop:
+	 * Base64 eines JSON mit denselben Feldern in derselben Reihenfolge. Felder, die Firefox dort nicht liefert
+	 * (model, osVersion, deviceMemory), fehlen wie im Original. Die Web-App bildet stableDeviceId als SHA-512
+	 * über einen Canvas-Abdruck, hier über die Telefonnummer, damit die ID je Konto gleich bleibt.
 	 */
 	static String deviceInfo(String user) throws Exception
 	{
@@ -126,17 +132,17 @@ public class TraderepublicSynchronizeJobKontoauszug extends SyncNTSynchronizeJob
 		for (byte b : md.digest(("hibiscus.syncNorthTommy:" + user).getBytes(StandardCharsets.UTF_8)))
 			id.append(String.format("%02x", b));
 
-		JSONObject info = new JSONObject();
-		info.put("stableDeviceId", id.toString());
-		info.put("browser", "Firefox");
-		info.put("browserVersion", "140.0");
-		info.put("os", "Linux");
-		info.put("timezone", "Europe/Berlin");
-		info.put("timezoneOffset", -TimeZone.getTimeZone("Europe/Berlin").getOffset(System.currentTimeMillis()) / 60000);
-		info.put("screen", "1920x1080x24");
-		info.put("preferredLanguages", new JSONArray().put("de-DE").put("de").put("en"));
-		info.put("numberOfCores", 4);
-		return Base64.getEncoder().encodeToString(info.toString().getBytes(StandardCharsets.UTF_8));
+		int offset = -TimeZone.getTimeZone("Europe/Berlin").getOffset(System.currentTimeMillis()) / 60000;
+		String json = "{\"stableDeviceId\":" + JSONObject.quote(id.toString())
+				+ ",\"browser\":\"Firefox\""
+				+ ",\"browserVersion\":" + JSONObject.quote(FIREFOX_VERSION)
+				+ ",\"os\":\"Linux\""
+				+ ",\"timezone\":\"Europe/Berlin\""
+				+ ",\"timezoneOffset\":" + offset
+				+ ",\"screen\":\"1920x1080x24\""
+				+ ",\"preferredLanguages\":[\"de-DE\",\"de\",\"en-US\",\"en\"]"
+				+ ",\"numberOfCores\":4}";
+		return Base64.getEncoder().encodeToString(json.getBytes(StandardCharsets.UTF_8));
 	}
 
 	private void stopPlaywright()
@@ -200,10 +206,11 @@ public class TraderepublicSynchronizeJobKontoauszug extends SyncNTSynchronizeJob
 		//headers.add(new KeyValue<String, String>("Sec-Fetch-Mode", "cors"));
 		//headers.add(new KeyValue<String, String>("Sec-Fetch-Site", "same-site"));
 		//headers.add(new KeyValue<String, String>("TE", "trailers"));
+		headers.add(new KeyValue<String, String>("User-Agent", USER_AGENT));
 		headers.add(new KeyValue<String, String>("X-TR-Platform", "web"));
+		headers.add(new KeyValue<String, String>("X-TR-App-Version", WEB_APP_VERSION));
 		// Seit 31.10.2026 lehnt TR den Login ohne diesen Header ab: 400 MISSING_REQUIRED_HEADER.
 		headers.add(new KeyValue<String, String>("X-TR-Device-Info", deviceInfo(user)));
-		//headers.add(new KeyValue<String, String>("X-TR-App-Version", "3.296.0"));
 
 		  
 		// Eine Anmeldung (mit OTP aus der App) je Abruf: Verrechnungskonto und Depot sind zwei Hibiscus-Konten
@@ -454,7 +461,7 @@ public class TraderepublicSynchronizeJobKontoauszug extends SyncNTSynchronizeJob
             ClientUpgradeRequest request = new ClientUpgradeRequest();
 
             // Add headers
-            request.setHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0)");
+            request.setHeader("User-Agent", USER_AGENT);
             request.setHeader("Origin", "https://app.traderepublic.com");
             request.setHeader("Accept-Language", "en-US,en;q=0.5");
             request.setHeader("Accept-Encoding", "gzip, deflate, br, zstd");
