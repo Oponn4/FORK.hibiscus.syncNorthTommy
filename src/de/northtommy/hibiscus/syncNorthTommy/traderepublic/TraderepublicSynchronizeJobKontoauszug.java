@@ -30,6 +30,9 @@ import java.util.Timer;
 import java.util.TimerTask;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.UUID;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.util.Base64;
 
 import javax.annotation.Resource;
 
@@ -111,6 +114,31 @@ public class TraderepublicSynchronizeJobKontoauszug extends SyncNTSynchronizeJob
 		}
 	}
 
+	/**
+	 * Wert für X-TR-Device-Info wie in der Web-App (app.traderepublic.com): Base64 eines JSON mit Geräte-
+	 * und Browserdaten. Die Web-App bildet stableDeviceId als SHA-512 über einen Canvas-Abdruck. Hier
+	 * stattdessen SHA-512 über die Telefonnummer, damit die ID je Konto über alle Abrufe gleich bleibt.
+	 */
+	static String deviceInfo(String user) throws Exception
+	{
+		MessageDigest md = MessageDigest.getInstance("SHA-512");
+		StringBuilder id = new StringBuilder();
+		for (byte b : md.digest(("hibiscus.syncNorthTommy:" + user).getBytes(StandardCharsets.UTF_8)))
+			id.append(String.format("%02x", b));
+
+		JSONObject info = new JSONObject();
+		info.put("stableDeviceId", id.toString());
+		info.put("browser", "Firefox");
+		info.put("browserVersion", "140.0");
+		info.put("os", "Linux");
+		info.put("timezone", "Europe/Berlin");
+		info.put("timezoneOffset", -TimeZone.getTimeZone("Europe/Berlin").getOffset(System.currentTimeMillis()) / 60000);
+		info.put("screen", "1920x1080x24");
+		info.put("preferredLanguages", new JSONArray().put("de-DE").put("de").put("en"));
+		info.put("numberOfCores", 4);
+		return Base64.getEncoder().encodeToString(info.toString().getBytes(StandardCharsets.UTF_8));
+	}
+
 	private void stopPlaywright()
 	{
 		if (pwrt == null || !pwrt.isAlive())
@@ -173,6 +201,8 @@ public class TraderepublicSynchronizeJobKontoauszug extends SyncNTSynchronizeJob
 		//headers.add(new KeyValue<String, String>("Sec-Fetch-Site", "same-site"));
 		//headers.add(new KeyValue<String, String>("TE", "trailers"));
 		headers.add(new KeyValue<String, String>("X-TR-Platform", "web"));
+		// Seit 31.10.2026 lehnt TR den Login ohne diesen Header ab: 400 MISSING_REQUIRED_HEADER.
+		headers.add(new KeyValue<String, String>("X-TR-Device-Info", deviceInfo(user)));
 		//headers.add(new KeyValue<String, String>("X-TR-App-Version", "3.296.0"));
 
 		  
