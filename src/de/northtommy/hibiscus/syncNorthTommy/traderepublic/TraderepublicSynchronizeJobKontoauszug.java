@@ -155,6 +155,15 @@ public class TraderepublicSynchronizeJobKontoauszug extends SyncNTSynchronizeJob
 		}
 
 
+		// Eine Anmeldung (Bestaetigung in der App) je Abruf: Verrechnungskonto und Depot sind zwei Hibiscus-Konten
+		// mit je einem Job, nutzen aber dieselbe TR-Sitzung. Sonst fragt jedes TR-Konto eine eigene Bestaetigung ab.
+		JSONObject json = null;
+		Map<String, String> cached = TraderepublicSessionCache.get(user);
+		if (cached != null) {
+			sessionCookies.putAll(cached);
+			log(Level.INFO, "Anmeldung vom vorigen TR-Konto dieses Abrufs wird weiterverwendet (keine weitere Best\u00E4tigung).");
+		} else {
+
 		// Login step 1: phone number + PIN -> processId, confirmation in the app is requested by the server
 
 		var loginBody = new JSONObject();
@@ -183,7 +192,7 @@ public class TraderepublicSynchronizeJobKontoauszug extends SyncNTSynchronizeJob
 		}
 		collectSessionCookies(response, "Login Step 1");
 
-		var json = response.getJSONObject();
+		json = response.getJSONObject();
 		log(Level.DEBUG, "Login step 1 response: " + json);
 		String processId = json.optString("processId");
 		if (processId.isBlank()) {
@@ -239,6 +248,7 @@ public class TraderepublicSynchronizeJobKontoauszug extends SyncNTSynchronizeJob
 		
 		updatePercentComplete(5);
 		log(Level.INFO, "Login erfolgreich.");
+		} // Ende der Anmeldung (ohne weiterverwendete Sitzung)
 
 		
 		
@@ -263,6 +273,10 @@ public class TraderepublicSynchronizeJobKontoauszug extends SyncNTSynchronizeJob
 		
 		if (response.getHttpStatus() != 200) {
 			log(Level.DEBUG, "Response: " + response.getContent());
+			if (cached != null) {
+				TraderepublicSessionCache.clear();
+				throw new ApplicationException("Holen der Kontodaten mit weiterverwendeter Anmeldung fehlgeschlagen, bitte Abruf erneut starten");
+			}
 			throw new ApplicationException("Holen der Kontodaten fehlgeschlagen");
 		}
 		collectSessionCookies(response, "Account");
@@ -325,6 +339,10 @@ public class TraderepublicSynchronizeJobKontoauszug extends SyncNTSynchronizeJob
 			gc.add(GregorianCalendar.DAY_OF_MONTH, -10);
 		}
 		
+		// Kontodaten kamen an, die Sitzung gilt: fuer das naechste TR-Konto dieses Abrufs merken.
+		TraderepublicSessionCache.put(user, sessionCookies);
+		boolean jobFailed = false;
+
 		String destUri = TRADEREP_WSS_URL;
         WebSocketClient client = new WebSocketClient();
 		client.getHttpClient().setRequestBufferSize(64 * 1024);
@@ -591,6 +609,26 @@ public class TraderepublicSynchronizeJobKontoauszug extends SyncNTSynchronizeJob
 						{
 							neueUmsaetze.add(newUmsatz);
 						}
+
+						// Saveback: TR schreibt den Bonus aufs Cashkonto gut ("Saveback cash reward") und kauft davon
+						// sofort Anteile. Die Timeline liefert nur den Kauf, ohne Gegenbuchung fehlt der Bonus und die
+						// Zwischensalden laufen auseinander. Die Gutschrift wird hier als eigener Umsatz ergänzt.
+						if ("Saveback Trading".equals(newUmsatz.getArt()) && status.compareToIgnoreCase("EXECUTED") == 0
+								&& newUmsatz.getBetrag() < 0) {
+							var gutschrift = (Umsatz) Settings.getDBService().createObject(Umsatz.class,null);
+							gutschrift.setKonto(konto);
+							gutschrift.setTransactionId(transaction.getString("id") + "-reward");
+							gutschrift.setBetrag(-newUmsatz.getBetrag());
+							gutschrift.setZweck("Saveback cash reward");
+							gutschrift.setArt("Saveback Gutschrift");
+							gutschrift.setDatum(newUmsatz.getDatum());
+							gutschrift.setValuta(newUmsatz.getValuta());
+							gutschrift.setSaldo(calculatedSaldo);
+							calculatedSaldo -= gutschrift.getBetrag();
+							if (getDuplicateById(gutschrift) == null) {
+								neueUmsaetze.add(gutschrift);
+							}
+						}
 	            	
             		}
             		catch (Exception ex)
@@ -626,6 +664,9 @@ public class TraderepublicSynchronizeJobKontoauszug extends SyncNTSynchronizeJob
 				
             } // if fetchUmsatz
 
+        } catch (Exception jobError) {
+            jobFailed = true;
+            throw jobError;
         } finally {
             try {
             		log(Level.INFO, "Stop Websocketclient in background ...");
@@ -634,7 +675,8 @@ public class TraderepublicSynchronizeJobKontoauszug extends SyncNTSynchronizeJob
                 e.printStackTrace();
             }
             
-            // Logout
+            // Logout erst nach dem letzten TR-Konto dieses Abrufs (oder nach einem Fehler), siehe TraderepublicSessionCache
+            if (TraderepublicSessionCache.finishJob(jobFailed)) {
  			try 
  			{
  				response = doRequest(TRADEREP_LOGOUT_URL, 
@@ -642,6 +684,9 @@ public class TraderepublicSynchronizeJobKontoauszug extends SyncNTSynchronizeJob
  						null);
  			}
  			catch (Exception e) {}
+            } else {
+            	log(Level.INFO, "Abmeldung folgt nach dem letzten TR-Konto dieses Abrufs.");
+            }
  			
  			try {
  				if (pwrt != null) {
