@@ -699,7 +699,7 @@ public class TraderepublicSynchronizeJobKontoauszug extends SyncNTSynchronizeJob
                 e.printStackTrace();
             }
             
-            // Logout erst nach dem letzten TR-Konto dieses Abrufs (oder nach einem Fehler), siehe TraderepublicSessionCache
+            // Logout nur nach einem Fehler; sonst bleibt die Sitzung kurz fuer das naechste TR-Konto, siehe TraderepublicSessionCache
             if (TraderepublicSessionCache.finishJob(jobFailed)) {
  			try 
  			{
@@ -709,7 +709,7 @@ public class TraderepublicSynchronizeJobKontoauszug extends SyncNTSynchronizeJob
  			}
  			catch (Exception e) {}
             } else {
-            	log(Level.INFO, "Abmeldung folgt nach dem letzten TR-Konto dieses Abrufs.");
+            	log(Level.INFO, "Sitzung bleibt kurz f\u00FCr das n\u00E4chste TR-Konto bestehen (keine Abmeldung).");
             }
  			
  			try {
