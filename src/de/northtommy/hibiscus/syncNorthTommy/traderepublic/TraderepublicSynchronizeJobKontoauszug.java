@@ -146,9 +146,23 @@ public class TraderepublicSynchronizeJobKontoauszug extends SyncNTSynchronizeJob
 		headers.add(new KeyValue<String, String>("Accept", "*/*"));
 		headers.add(new KeyValue<String, String>("Accept-Language", "en"));
 		headers.add(new KeyValue<String, String>("Accept-Encoding", "gzip, deflate, br, zstd"));
-		// x-tr-platform, x-tr-app-version, x-tr-device-info as sent by the web app
+		// x-tr-platform, x-tr-app-version, x-tr-device-info as sent by the web app.
+		// Die Geraete-Kennung der ersten Anmeldung wird wiederverwendet (siehe TraderepublicDeviceStore), sonst
+		// gilt jeder Abruf als neues Geraet und TR schickt jedes Mal eine Mail.
+		String storedDeviceInfo = TraderepublicDeviceStore.getDeviceInfo(user);
+		String storedTrDevice = TraderepublicDeviceStore.getTrDevice(user);
 		for (var trHeader : pwrt.trHeaders.entrySet()) {
-			headers.add(new KeyValue<String, String>(trHeader.getKey(), trHeader.getValue()));
+			String value = trHeader.getValue();
+			if (trHeader.getKey().equals("x-tr-device-info") && storedDeviceInfo != null) {
+				value = storedDeviceInfo;
+			}
+			headers.add(new KeyValue<String, String>(trHeader.getKey(), value));
+		}
+		if (storedDeviceInfo != null && !pwrt.trHeaders.containsKey("x-tr-device-info")) {
+			headers.add(new KeyValue<String, String>("x-tr-device-info", storedDeviceInfo));
+		}
+		if (storedDeviceInfo != null || storedTrDevice != null) {
+			log(Level.INFO, "Gespeicherte Ger\u00E4te-Kennung wird verwendet.");
 		}
 		if (!pwrt.trHeaders.containsKey("x-tr-platform")) {
 			headers.add(new KeyValue<String, String>("x-tr-platform", "web"));
@@ -163,6 +177,9 @@ public class TraderepublicSynchronizeJobKontoauszug extends SyncNTSynchronizeJob
 			sessionCookies.putAll(cached);
 			log(Level.INFO, "Anmeldung vom vorigen TR-Konto dieses Abrufs wird weiterverwendet (keine weitere Best\u00E4tigung).");
 		} else {
+		if (storedTrDevice != null) {
+			sessionCookies.put("tr_device", storedTrDevice);
+		}
 
 		// Login step 1: phone number + PIN -> processId, confirmation in the app is requested by the server
 
@@ -249,6 +266,12 @@ public class TraderepublicSynchronizeJobKontoauszug extends SyncNTSynchronizeJob
 		
 		updatePercentComplete(5);
 		log(Level.INFO, "Login erfolgreich.");
+		try {
+			String usedDeviceInfo = storedDeviceInfo != null ? storedDeviceInfo : pwrt.trHeaders.get("x-tr-device-info");
+			TraderepublicDeviceStore.remember(user, usedDeviceInfo, sessionCookies.get("tr_device"));
+		} catch (Exception e) {
+			log(Level.WARN, "Ger\u00E4te-Kennung nicht gespeichert: " + e.getMessage());
+		}
 		} // Ende der Anmeldung (ohne weiterverwendete Sitzung)
 
 		
