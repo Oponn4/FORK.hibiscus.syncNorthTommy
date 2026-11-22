@@ -204,9 +204,10 @@ public class TraderepublicSynchronizeJobKontoauszug extends SyncNTSynchronizeJob
 		
 		// Login step 2: poll login process until the user confirmed in the app
 
-		log(Level.INFO, "Bitte den Login in der Traderepublic App best\u00E4tigen");
-		// NOTE: if notifyUser() is modal, polling continues after the dialog was closed
-		Application.getCallback().notifyUser("Bitte bestaetige den Login mittels der Traderepublic App");
+		// Nur ins Protokoll, kein Dialog: notifyUser() ist in der GUI modal und haelt diesen Thread an, bis jemand
+		// OK klickt. Die Bestaetigung in der App lief dann ins Leere, bis per VNC geklickt wurde (22.11.2026).
+		// Wie bei Advanzia reicht der Hinweis im Fortschrittsprotokoll; abgefragt wird sofort.
+		log(Level.INFO, "Bitte den Login in der Traderepublic App best\u00E4tigen (" + (LOGIN_CONFIRM_TIMEOUT_MS / 1000) + " s)");
 
 		long pollStart = System.currentTimeMillis();
 		String loginStatus = "PENDING";
